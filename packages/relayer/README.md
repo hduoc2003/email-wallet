@@ -107,7 +107,7 @@ cargo build   # output binary is in target/debug/relayer
  1. Create a `.env` file in `packages/relayer` by taking a copy from `.env.example`.
 
 ```bash
-cp packages/relayer/.env.example packages/relayer/.env
+cp packages/relayer/.env.example.example packages/relayer/.env.example
 ```
 
 2. Update the `.env` file
@@ -174,7 +174,7 @@ docker buildx build -t email_wallet_v1_relayer:latest -f Relayer.Dockerfile . \
 ```bash
 docker run \
 -p 80:80 \
--v $(pwd)/.env:/email-wallet/packages/relayer/.env \
+-v $(pwd)/.env.example:/email-wallet/packages/relayer/.env.example \
 email_wallet_v1_relayer:latest
 ```
 
@@ -229,7 +229,7 @@ Create `.env` in the execution directory with reference to `env_example`.
 ```bash
 docker run \
 -p 80:80 \
--v $(pwd)/.env:/email-wallet/packages/relayer/.env \
+-v $(pwd)/.env.example:/email-wallet/packages/relayer/.env.example \
 -e SETUP=false
 email_wallet_v1_relayer:latest
 ```

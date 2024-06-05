@@ -80,7 +80,7 @@ You can either deploy all contracts at once or deploy each contract separately.
 ##### Create .env
 
 ```sh
-cp .env.sample .env
+cp .env.example.sample .env.example
 ```
 
 ##### Run 
