@@ -84,7 +84,7 @@ pub struct AccountCreationResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct GetWalletRes {
-    address: String
+    pub address: String
 }
 
 impl ChainClient {

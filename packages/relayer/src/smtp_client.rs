@@ -109,7 +109,7 @@ impl SmtpClient {
                     email address.\nCheck the transaction on Nibiru: https://explorer.nibiru.fi/nibiru-testnet-1/tx/{}",
                     user_email_addr, email.tx_hash.clone().expect("tx_hash must be set")
                 );
-                let render_data = serde_json::json!({"userEmailAddr": user_email_addr, "transactionHash": email.tx_hash});
+                let render_data = serde_json::json!({"userEmailAddr": user_email_addr, "transactionHash": email.tx_hash, "walletAddress": email.wallet_addr});
                 let body_html = self
                     .render_html("account_creation.html", render_data)
                     .await?;
