@@ -270,7 +270,7 @@ pub(crate) async fn handle_email<P: EmailsPool>(
         (*tx_sender)
             .clone()
             .send(EmailMessage {
-                to: re_mail_addr,
+                to: from_address.clone(),
                 email_args: EmailArgs::TxComplete {
                     user_email_addr: from_address.clone(),
                     original_subject: subject,
