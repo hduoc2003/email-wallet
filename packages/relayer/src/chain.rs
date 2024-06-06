@@ -77,6 +77,11 @@ pub struct ChainClient {
     pub(crate) test_erc20: TestERC20<SignerM>,
 }
 
+pub struct AccountCreationResponse {
+    user_addr: String,
+    account_verify_tx_hash: String
+}
+
 impl ChainClient {
     pub async fn setup() -> Result<Self> {
         let wallet: LocalWallet = PRIVATE_KEY.get().unwrap().parse()?;
@@ -181,9 +186,8 @@ impl ChainClient {
             .send()
             .await?
             .error_for_status()?;
-        let res_json = res.json::<ProverRes>().await?;
-        // Ok(tx_hash)
-        todo!()
+        let res_json = res.json::<AccountCreationResponse>().await?;
+        Ok(res_json.account_verify_tx_hash)
     }
 
     pub async fn init_account(&self, data: AccountInitInput) -> Result<String> {
