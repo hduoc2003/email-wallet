@@ -1,4 +1,4 @@
 [workspace]
-members = ["packages/relayer", "packages/utils", "packages/scripts", "packages/nibiru-contracts/verifier"]
+members = ["packages/relayer", "packages/utils", "packages/scripts"]
 exclude = ["node_modules/*"]
 resolver = "2"

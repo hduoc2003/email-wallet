@@ -110,7 +110,7 @@ pub(crate) async fn claim_unclaims(
         id: claim.id,
         email_addr_pointer: u256_to_bytes32(&pub_signals[1]),
         is_fund: claim.is_fund,
-        proof,
+        proof: proof.to_eth_bytes()?,
     };
     let result = chain_client.claim(data).await?;
     db.delete_claim(&claim.id, claim.is_fund).await?;

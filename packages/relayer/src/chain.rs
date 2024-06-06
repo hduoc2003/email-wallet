@@ -1,23 +1,27 @@
 use std::str::FromStr;
 
-use crate::shared;
-use shared::SHARED_MUTEX;
-
-use crate::*;
 use ethers::abi::RawLog;
 use ethers::middleware::Middleware;
 use ethers::prelude::*;
 use ethers::signers::Signer;
+use handlebars::to_json;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use shared::SHARED_MUTEX;
+
+use crate::shared;
+use crate::*;
 
 const CONFIRMATIONS: usize = 1;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct AccountCreationInput {
-    pub(crate) email_addr_pointer: [u8; 32],
-    pub(crate) account_key_commit: [u8; 32],
-    pub(crate) wallet_salt: [u8; 32],
-    pub(crate) psi_point: Bytes,
-    pub(crate) proof: Bytes,
+    pub(crate) email_addr_pointer: U256,
+    pub(crate) account_key_commit: U256,
+    pub(crate) wallet_salt: U256,
+    pub(crate) psi_point: [U256; 2],
+    pub(crate) proof: ProofJson,
 }
 
 #[derive(Default, Debug)]
@@ -60,7 +64,7 @@ pub struct ClaimInput {
 
 type SignerM = SignerMiddleware<Provider<Http>, LocalWallet>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ChainClient {
     pub client: Arc<SignerM>,
     pub(crate) core: EmailWalletCore<SignerM>,
@@ -149,22 +153,37 @@ impl ChainClient {
         let mut mutex = SHARED_MUTEX.lock().await;
         *mutex += 1;
 
-        let call = self.account_handler.create_account(
-            data.email_addr_pointer,
-            data.account_key_commit,
-            data.wallet_salt,
-            data.psi_point,
-            data.proof,
-        );
-        let tx = call.send().await?;
-        let receipt = tx
-            .log()
-            .confirmations(CONFIRMATIONS)
+        // let call = self.account_handler.create_account(
+        //     data.email_addr_pointer,
+        //     data.account_key_commit,
+        //     data.wallet_salt,
+        //     data.psi_point,
+        //     data.proof,
+        // );
+        // let tx = call.send().await?;
+        // let receipt = tx
+        //     .log()
+        //     .confirmations(CONFIRMATIONS)
+        //     .await?
+        //     .ok_or(anyhow!("No receipt"))?;
+        // let tx_hash = receipt.transaction_hash;
+        // let tx_hash = format!("0x{}", hex::encode(tx_hash.as_bytes()));
+        let client = reqwest::Client::new();
+        let res = client
+            .post(format!("{}/create-account", NIBIRU_SDK_PROXY_ADDR))
+            .json(&json!({
+                "email_addr_pointer": data.email_addr_pointer.to_string(),
+                "account_key_commit": data.account_key_commit.to_string(),
+                "wallet_salt": data.wallet_salt.to_string(),
+                "psi_point": data.psi_point.iter().map(|x| x.to_string()).collect::<String>(),
+                "proof": data.proof
+            }))
+            .send()
             .await?
-            .ok_or(anyhow!("No receipt"))?;
-        let tx_hash = receipt.transaction_hash;
-        let tx_hash = format!("0x{}", hex::encode(tx_hash.as_bytes()));
-        Ok(tx_hash)
+            .error_for_status()?;
+        let res_json = res.json::<ProverRes>().await?;
+        // Ok(tx_hash)
+        todo!()
     }
 
     pub async fn init_account(&self, data: AccountInitInput) -> Result<String> {
@@ -344,7 +363,7 @@ impl ChainClient {
             signature,
         );
         let tx = match call.send().await {
-            Ok(tx) => {tx}
+            Ok(tx) => tx,
             Err(err) => {
                 error!(LOG, "set_dkim_public_key_hash error {}", err);
                 todo!()
@@ -716,5 +735,64 @@ impl ChainClient {
             "{:?} for {} is already registered: {}", public_key_hash, domain_name, is_valid; "func" => function_name!()
         );
         Ok(is_valid)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    use crate::chain::AccountCreationInput;
+    use crate::core::{generate_account_creation_input, generate_proof, ProverRes};
+    use crate::strings::NIBIRU_SDK_PROXY_ADDR;
+    use crate::{PROVER_ADDRESS, RELAYER_RAND};
+
+    #[tokio::test]
+    async fn create_account() {
+        static CIRCUITS_DIR_PATH: OnceLock<PathBuf> = OnceLock::new();
+        CIRCUITS_DIR_PATH
+            .set("../circuits".to_string().into())
+            .unwrap();
+        let input = generate_account_creation_input(
+            CIRCUITS_DIR_PATH.get().unwrap(),
+            "hduoc2003@gmail.com",
+            RELAYER_RAND.get().unwrap(),
+            "0x2413b1824352a7febd833a75fc54a2eb910d9aeb71fd653e6bc703bab01d857e",
+        )
+        .await
+        .unwrap();
+
+        let (proof, pub_signals) =
+            generate_proof(&input, "account_creation", PROVER_ADDRESS.get().unwrap())
+                .await
+                .unwrap();
+
+        let data = AccountCreationInput {
+            email_addr_pointer: pub_signals[1],
+            account_key_commit: pub_signals[2],
+            wallet_salt: pub_signals[3],
+            psi_point: [pub_signals[4], pub_signals[5]],
+            proof,
+        };
+
+        let client = reqwest::Client::new();
+        let res = client
+            .post(format!("{}/create-account", NIBIRU_SDK_PROXY_ADDR))
+            .json(&json!({
+                "email_addr_pointer": data.email_addr_pointer.to_string(),
+                "account_key_commit": data.account_key_commit.to_string(),
+                "wallet_salt": data.wallet_salt.to_string(),
+                "psi_point": data.psi_point.iter().map(|x| x.to_string()).collect::<String>(),
+                "proof": data.proof
+            }))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let res_json = res.json::<String>().await.unwrap();
+        println!("{}", res_json)
     }
 }

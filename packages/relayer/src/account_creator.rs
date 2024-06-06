@@ -37,10 +37,10 @@ pub(crate) async fn create_account(
         generate_proof(&input, "account_creation", PROVER_ADDRESS.get().unwrap()).await?;
 
     let data = AccountCreationInput {
-        email_addr_pointer: u256_to_bytes32(&pub_signals[1]),
-        account_key_commit: u256_to_bytes32(&pub_signals[2]),
-        wallet_salt: u256_to_bytes32(&pub_signals[3]),
-        psi_point: get_psi_point_bytes(pub_signals[4], pub_signals[5]),
+        email_addr_pointer: pub_signals[1],
+        account_key_commit: pub_signals[2],
+        wallet_salt: pub_signals[3],
+        psi_point: [pub_signals[4], pub_signals[5]],
         proof,
     };
     info!(LOG, "Account creation data {:?}", data; "func" => function_name!());

@@ -7,7 +7,7 @@ use email_wallet_utils::*;
 use ethers::abi::Token;
 use ethers::types::{Address, Bytes, U256};
 use ethers::utils::hex::FromHex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
@@ -28,32 +28,32 @@ pub struct ProverRes {
     pub_signals: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProofJson {
-    pi_a: Vec<String>,
-    pi_b: Vec<Vec<String>>,
-    pi_c: Vec<String>,
+    p_a: Vec<String>,
+    p_b: Vec<Vec<String>>,
+    p_c: Vec<String>,
 }
 
 impl ProofJson {
     pub fn to_eth_bytes(&self) -> Result<Bytes> {
         let pi_a = Token::FixedArray(vec![
-            Token::Uint(U256::from_dec_str(self.pi_a[0].as_str())?),
-            Token::Uint(U256::from_dec_str(self.pi_a[1].as_str())?),
+            Token::Uint(U256::from_dec_str(self.p_a[0].as_str())?),
+            Token::Uint(U256::from_dec_str(self.p_a[1].as_str())?),
         ]);
         let pi_b = Token::FixedArray(vec![
             Token::FixedArray(vec![
-                Token::Uint(U256::from_dec_str(self.pi_b[0][1].as_str())?),
-                Token::Uint(U256::from_dec_str(self.pi_b[0][0].as_str())?),
+                Token::Uint(U256::from_dec_str(self.p_b[0][1].as_str())?),
+                Token::Uint(U256::from_dec_str(self.p_b[0][0].as_str())?),
             ]),
             Token::FixedArray(vec![
-                Token::Uint(U256::from_dec_str(self.pi_b[1][1].as_str())?),
-                Token::Uint(U256::from_dec_str(self.pi_b[1][0].as_str())?),
+                Token::Uint(U256::from_dec_str(self.p_b[1][1].as_str())?),
+                Token::Uint(U256::from_dec_str(self.p_b[1][0].as_str())?),
             ]),
         ]);
         let pi_c = Token::FixedArray(vec![
-            Token::Uint(U256::from_dec_str(self.pi_c[0].as_str())?),
-            Token::Uint(U256::from_dec_str(self.pi_c[1].as_str())?),
+            Token::Uint(U256::from_dec_str(self.p_c[0].as_str())?),
+            Token::Uint(U256::from_dec_str(self.p_c[1].as_str())?),
         ]);
         Ok(Bytes::from(abi::encode(&[pi_a, pi_b, pi_c])))
     }
@@ -141,10 +141,10 @@ pub(crate) async fn handle_email<P: EmailsPool>(
                 generate_proof(&input, "account_creation", PROVER_ADDRESS.get().unwrap()).await?;
 
             let data = AccountCreationInput {
-                email_addr_pointer: u256_to_bytes32(&pub_signals[1]),
-                account_key_commit: u256_to_bytes32(&pub_signals[2]),
-                wallet_salt: u256_to_bytes32(&pub_signals[3]),
-                psi_point: get_psi_point_bytes(pub_signals[4], pub_signals[5]),
+                email_addr_pointer: pub_signals[1],
+                account_key_commit: pub_signals[2],
+                wallet_salt: pub_signals[3],
+                psi_point: [pub_signals[4], pub_signals[5]],
                 proof,
             };
             info!(LOG, "Account creation data {:?}", data; "func" => function_name!());
@@ -421,7 +421,7 @@ pub(crate) async fn handle_email<P: EmailsPool>(
             new_dkim_registry,
             wallet_params,
             extension_params,
-            email_proof,
+            email_proof: email_proof.to_eth_bytes()?,
         };
         trace!(LOG, "email_op constructed: {:?}", email_op; "func" => function_name!());
         chain_client.validate_email_op(email_op.clone()).await?;
@@ -531,7 +531,7 @@ pub(crate) async fn handle_account_init(
         email_timestamp: pub_signals[DOMAIN_FIELDS + 5],
         email_nullifier: u256_to_bytes32(&pub_signals[DOMAIN_FIELDS + 2]),
         dkim_public_key_hash: u256_to_bytes32(&pub_signals[DOMAIN_FIELDS + 0]),
-        proof,
+        proof: proof.to_eth_bytes()?,
     };
     info!(LOG, "account init data {:?}", data; "func" => function_name!());
     let result = chain_client.init_account(data).await?;
@@ -616,7 +616,7 @@ pub(crate) async fn handle_account_transport(
         timestamp: parsed_email.get_timestamp()?.into(),
         dkim_public_key_hash: u256_to_bytes32(&pub_signals[DOMAIN_FIELDS + 0]),
         nullifier: fr_to_bytes32(&email_nullifier(&parsed_email.signature)?)?,
-        proof: transport_proof,
+        proof: transport_proof.to_eth_bytes()?,
     };
 
     let input = generate_account_creation_input(
@@ -635,7 +635,7 @@ pub(crate) async fn handle_account_transport(
         new_account_key_commit: fr_to_bytes32(&new_account_key_commit)?,
         new_psi_point,
         transport_email_proof: email_proof,
-        account_creation_proof: creation_proof,
+        account_creation_proof: creation_proof.to_eth_bytes()?,
     };
 
     let result = chain_client.transport_account(data).await?;
@@ -885,7 +885,7 @@ pub(crate) async fn generate_proof(
     input: &str,
     request: &str,
     address: &str,
-) -> Result<(Bytes, Vec<U256>)> {
+) -> Result<(ProofJson, Vec<U256>)> {
     let client = reqwest::Client::new();
     info!(LOG, "prover input {}", input; "func" => function_name!());
     let res = client
@@ -895,7 +895,7 @@ pub(crate) async fn generate_proof(
         .await?
         .error_for_status()?;
     let res_json = res.json::<ProverRes>().await?;
-    let proof = res_json.proof.to_eth_bytes()?;
+    let proof = res_json.proof;
     let pub_signals = res_json
         .pub_signals
         .into_iter()
