@@ -15,8 +15,8 @@ services:
       - POSTGRES_DB=emailwallet
     ports:
       - "5432:5432"
-    volumes:
-      - "./mount-data:/var/lib/postgresql/data"
+    # volumes:
+    #   - "./mount-data:/var/lib/postgresql/data"
   # relayer:
   #   image: email-wallet-relayer
   #   build:

@@ -64,4 +64,4 @@ pub(crate) const DKIM_COMMAND: &str = "DKIM";
 pub(crate) const CANISTER_ID_KEY: &str = "CANISTER_ID";
 pub(crate) const PEM_PATH_KEY: &str = "PEM_PATH";
 pub(crate) const IC_REPLICA_URL_KEY: &str = "IC_REPLICA_URL";
-pub(crate) const NIBIRU_SDK_PROXY_ADDR: &'static str = "localhost:3000";
+pub(crate) const NIBIRU_SDK_PROXY_ADDR: &'static str = "http://localhost:3000";

@@ -104,9 +104,9 @@ impl SmtpClient {
                     "Welcome to Email Wallet, {}!\nYour email
                 wallet account is
                 created.\nPlease reply to this email to start using Email
-                    Wallet. You don't have to add any message in the reply 😄.\nYou already have 100 TEST tokens. Once you reply to this
+                    Wallet. You don't have to add any message in the reply 😄.\n Once you reply to this
                     email, you can send them to your friends by specifying the recpient's
-                    email address.\nCheck the transaction on etherscan: https://sepolia.etherscan.io/tx/{}",
+                    email address.\nCheck the transaction on Nibiru: https://explorer.nibiru.fi/nibiru-testnet-1/tx/{}",
                     user_email_addr, email.tx_hash.clone().expect("tx_hash must be set")
                 );
                 let render_data = serde_json::json!({"userEmailAddr": user_email_addr, "transactionHash": email.tx_hash});
@@ -450,32 +450,34 @@ pub(crate) async fn error_email_if_needed(
 
     let error_email = match error.as_str() {
         "Account is already created" => {
-            let email = EmailMessage {
-                to: from_address.clone(),
-                email_args: EmailArgs::Error {
-                    user_email_addr: from_address,
-                    original_subject: Some(subject),
-                    error_msg: "Account is already created".to_string(),
-                },
-                account_key: Some(field2hex(&account_key.0)),
-                wallet_addr: Some(ethers::utils::to_checksum(&wallet_addr, None)),
-                tx_hash: None,
-            };
-            Ok(email)
+            todo!()
+            // let email = EmailMessage {
+            //     to: from_address.clone(),
+            //     email_args: EmailArgs::Error {
+            //         user_email_addr: from_address,
+            //         original_subject: Some(subject),
+            //         error_msg: "Account is already created".to_string(),
+            //     },
+            //     account_key: Some(field2hex(&account_key.0)),
+            //     wallet_addr: Some(ethers::utils::to_checksum(&wallet_addr, None)),
+            //     tx_hash: None,
+            // };
+            // Ok(email)
         }
         "insufficient balance" => {
-            let email = EmailMessage {
-                to: from_address.clone(),
-                email_args: EmailArgs::Error {
-                    user_email_addr: from_address,
-                    original_subject: Some(subject),
-                    error_msg: "You don't have sufficient balance".to_string(),
-                },
-                account_key: Some(field2hex(&account_key.0)),
-                wallet_addr: Some(ethers::utils::to_checksum(&wallet_addr, None)),
-                tx_hash: None,
-            };
-            Ok(email)
+            // let email = EmailMessage {
+            //     to: from_address.clone(),
+            //     email_args: EmailArgs::Error {
+            //         user_email_addr: from_address,
+            //         original_subject: Some(subject),
+            //         error_msg: "You don't have sufficient balance".to_string(),
+            //     },
+            //     account_key: Some(field2hex(&account_key.0)),
+            //     wallet_addr: Some(ethers::utils::to_checksum(&wallet_addr, None)),
+            //     tx_hash: None,
+            // };
+            // Ok(email)
+            todo!()
         }
         _ => Err(()),
     };

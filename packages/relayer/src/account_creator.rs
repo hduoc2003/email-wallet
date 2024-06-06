@@ -50,9 +50,9 @@ pub(crate) async fn create_account(
     let wallet_addr = chain_client
         .get_wallet_addr_from_salt(&wallet_salt.0)
         .await?;
-    let token_transfered = chain_client
-        .free_mint_test_erc20(wallet_addr, ethers::utils::parse_ether("100")?)
-        .await?;
+    // let token_transfered = chain_client
+    //     .free_mint_test_erc20(wallet_addr, ethers::utils::parse_ether("100")?)
+    //     .await?;
 
     db.insert_user(&email_address, &account_key_str, &res, false)
         .await?;

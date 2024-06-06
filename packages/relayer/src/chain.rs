@@ -4,7 +4,6 @@ use ethers::abi::RawLog;
 use ethers::middleware::Middleware;
 use ethers::prelude::*;
 use ethers::signers::Signer;
-use handlebars::to_json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -77,9 +76,15 @@ pub struct ChainClient {
     pub(crate) test_erc20: TestERC20<SignerM>,
 }
 
+#[derive(Debug, Deserialize)]
 pub struct AccountCreationResponse {
     user_addr: String,
-    account_verify_tx_hash: String
+    account_verify_tx_hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetWalletRes {
+    address: String
 }
 
 impl ChainClient {
@@ -174,19 +179,27 @@ impl ChainClient {
         // let tx_hash = receipt.transaction_hash;
         // let tx_hash = format!("0x{}", hex::encode(tx_hash.as_bytes()));
         let client = reqwest::Client::new();
+        let psi_point: Vec<String> = data.psi_point.iter().map(|x| x.to_string()).collect();
         let res = client
             .post(format!("{}/create-account", NIBIRU_SDK_PROXY_ADDR))
             .json(&json!({
-                "email_addr_pointer": data.email_addr_pointer.to_string(),
-                "account_key_commit": data.account_key_commit.to_string(),
-                "wallet_salt": data.wallet_salt.to_string(),
-                "psi_point": data.psi_point.iter().map(|x| x.to_string()).collect::<String>(),
-                "proof": data.proof
+                "wallet_salt_byte32": u256_to_bytes32(&data.wallet_salt),
+                "proof": {
+                    "relayer_hash": "2657775570588162468106059892364959818794579555689188187841520494766536623870",
+                    "email_addr_pointer": data.email_addr_pointer.to_string(),
+                    "account_key_commit": data.account_key_commit.to_string(),
+                    "wallet_salt": data.wallet_salt.to_string(),
+                    "psi_point": psi_point,
+                    "proof": data.proof
+                }
             }))
             .send()
-            .await?
-            .error_for_status()?;
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
         let res_json = res.json::<AccountCreationResponse>().await?;
+        info!(LOG, "account creation response {:?}", {&res_json});
         Ok(res_json.account_verify_tx_hash)
     }
 
@@ -447,15 +460,16 @@ impl ChainClient {
         wallet_salt: &WalletSalt,
         token_name: &str,
     ) -> Result<U256> {
-        let token_addr = self
-            .token_registry
-            .get_token_address(token_name.to_string())
-            .call()
-            .await?;
-        let erc20 = ERC20::new(token_addr, self.client.clone());
-        let wallet_addr = self.get_wallet_addr_from_salt(&wallet_salt.0).await?;
-        let balance = erc20.balance_of(wallet_addr).call().await?;
-        Ok(balance)
+        todo!()
+        // let token_addr = self
+        //     .token_registry
+        //     .get_token_address(token_name.to_string())
+        //     .call()
+        //     .await?;
+        // let erc20 = ERC20::new(token_addr, self.client.clone());
+        // let wallet_addr = self.get_wallet_addr_from_salt(&wallet_salt.0).await?;
+        // let balance = erc20.balance_of(wallet_addr).call().await?;
+        // Ok(balance)
     }
 
     pub async fn query_erc20_address(&self, token_name: &str) -> Result<Address> {
@@ -501,13 +515,15 @@ impl ChainClient {
         wallet_salt: &WalletSalt,
         command: &str,
     ) -> Result<Address> {
-        let wallet_addr = self.get_wallet_addr_from_salt(&wallet_salt.0).await?;
-        let extension_addr = self
-            .extension_handler
-            .get_extension_for_command(wallet_addr, command.to_string())
-            .call()
-            .await?;
-        Ok(extension_addr)
+
+        todo!()
+        // let wallet_addr = self.get_wallet_addr_from_salt(&wallet_salt.0).await?;
+        // let extension_addr = self
+        //     .extension_handler
+        //     .get_extension_for_command(wallet_addr, command.to_string())
+        //     .call()
+        //     .await?;
+        // Ok(extension_addr)
     }
 
     pub async fn query_subject_templates_of_extension(
@@ -522,13 +538,29 @@ impl ChainClient {
         Ok(templates)
     }
 
-    pub async fn get_wallet_addr_from_salt(&self, wallet_salt: &Fr) -> Result<Address> {
-        let wallet_addr = self
-            .account_handler
-            .get_wallet_of_salt(fr_to_bytes32(wallet_salt)?)
-            .call()
-            .await?;
-        Ok(wallet_addr)
+    pub async fn get_wallet_addr_from_salt(&self, wallet_salt: &Fr) -> Result<String> {
+        // let wallet_addr = self
+        //     .account_handler
+        //     .get_wallet_of_salt(fr_to_bytes32(wallet_salt)?)
+        //     .call()
+        //     .await?;
+        // Ok(wallet_addr)
+        let client = reqwest::Client::new();
+        let salt_32 = fr_to_bytes32(wallet_salt).unwrap();
+        info!(LOG, "salt_32 ");
+        let res = client
+            .post(format!("{}/get-wallet-address", NIBIRU_SDK_PROXY_ADDR))
+            .json(&json!({
+                "wallet_salt": salt_32
+            }))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let addr = res.json::<GetWalletRes>().await;
+        println!("get wallet address response raw {:?}", addr);
+        Ok(addr.unwrap().address)
     }
 
     pub async fn query_rand_hash_of_relayer(&self, relayer: Address) -> Result<Fr> {
@@ -744,32 +776,37 @@ impl ChainClient {
 
 #[cfg(test)]
 mod test {
+    use dotenv::dotenv;
+    use email_wallet_utils::converters::field2hex;
     use serde_json::json;
-    use std::path::PathBuf;
-    use std::sync::OnceLock;
+    use std::env;
 
     use crate::chain::AccountCreationInput;
-    use crate::core::{generate_account_creation_input, generate_proof, ProverRes};
+    use crate::core::{derive_relayer_rand, generate_account_creation_input, generate_proof};
     use crate::strings::NIBIRU_SDK_PROXY_ADDR;
-    use crate::{PROVER_ADDRESS, RELAYER_RAND};
+    use crate::{u256_to_bytes32, AccountCreationResponse, CIRCUITS_DIR_PATH, INPUT_FILES_DIR};
 
     #[tokio::test]
     async fn create_account() {
-        static CIRCUITS_DIR_PATH: OnceLock<PathBuf> = OnceLock::new();
-        CIRCUITS_DIR_PATH
-            .set("../circuits".to_string().into())
+        dotenv().ok();
+        INPUT_FILES_DIR
+            .set(env::var("INPUT_FILES_DIR_PATH").unwrap())
             .unwrap();
+        CIRCUITS_DIR_PATH
+            .set(env::var("CIRCUITS_DIR_PATH").unwrap().into())
+            .unwrap();
+        let relayer_rand = derive_relayer_rand(env::var("PRIVATE_KEY").unwrap().as_str()).unwrap();
         let input = generate_account_creation_input(
             CIRCUITS_DIR_PATH.get().unwrap(),
             "hduoc2003@gmail.com",
-            RELAYER_RAND.get().unwrap(),
+            field2hex(&relayer_rand.0).as_str(),
             "0x2413b1824352a7febd833a75fc54a2eb910d9aeb71fd653e6bc703bab01d857e",
         )
         .await
         .unwrap();
 
         let (proof, pub_signals) =
-            generate_proof(&input, "account_creation", PROVER_ADDRESS.get().unwrap())
+            generate_proof(&input, "account_creation", "http://10.20.21.121:8080")
                 .await
                 .unwrap();
 
@@ -780,23 +817,27 @@ mod test {
             psi_point: [pub_signals[4], pub_signals[5]],
             proof,
         };
-
         let client = reqwest::Client::new();
+        let psi_point: Vec<String> = data.psi_point.iter().map(|x| x.to_string()).collect();
         let res = client
             .post(format!("{}/create-account", NIBIRU_SDK_PROXY_ADDR))
             .json(&json!({
+                "wallet_salt_byte32": u256_to_bytes32(&data.wallet_salt),
+                "proof": {
+                    "relayer_hash": pub_signals[0].to_string(),
                 "email_addr_pointer": data.email_addr_pointer.to_string(),
                 "account_key_commit": data.account_key_commit.to_string(),
                 "wallet_salt": data.wallet_salt.to_string(),
-                "psi_point": data.psi_point.iter().map(|x| x.to_string()).collect::<String>(),
+                "psi_point": psi_point,
                 "proof": data.proof
+                }
             }))
             .send()
             .await
             .unwrap()
             .error_for_status()
             .unwrap();
-        let res_json = res.json::<String>().await.unwrap();
-        println!("{}", res_json)
+        let res_json = res.json::<AccountCreationResponse>().await.unwrap();
+        print!("{:?}", res_json);
     }
 }

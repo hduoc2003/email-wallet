@@ -126,7 +126,7 @@ pub(crate) async fn claim_unclaims(
                 claim_msg: reply_msg,
             },
             account_key: Some(field2hex(&account_key.0)),
-            wallet_addr: Some(ethers::utils::to_checksum(&wallet_addr, None)),
+            wallet_addr: Some(wallet_addr),
             tx_hash: Some(result),
         })
         .unwrap();
