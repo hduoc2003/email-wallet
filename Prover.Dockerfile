@@ -13,7 +13,7 @@ RUN curl https://email-wallet-trusted-setup-ceremony-pse-p0tion-production.s3.eu
 RUN curl https://email-wallet-trusted-setup-ceremony-pse-p0tion-production.s3.eu-central-1.amazonaws.com/circuits/emailwallet-claim/contributions/emailwallet-claim_00006.zkey --output /root/params/claim.zkey
 RUN curl https://email-wallet-trusted-setup-ceremony-pse-p0tion-production.s3.eu-central-1.amazonaws.com/circuits/emailwallet-email-sender/contributions/emailwallet-email-sender_00006.zkey --output /root/params/email_sender.zkey
 
-WORKDIR /code
+WORKDIR /code/email-wallet
 COPY . .
 
 WORKDIR /code/email-wallet/packages/prover
