@@ -5,19 +5,19 @@ use crate::*;
 use chrono::{DateTime, Local};
 use email_wallet_utils::*;
 use ethers::abi::Token;
-use ethers::types::{Address, Bytes, U256};
+use ethers::types::{Bytes, U256};
 use ethers::utils::hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use tokio::{
     fs::{read_to_string, remove_file, File},
     io::AsyncWriteExt,
     sync::mpsc::UnboundedSender,
 };
+use utils::{get_account_key_from_mail, get_wallet_from_account_key, WalletInfo};
 
 const DOMAIN_FIELDS: usize = 9;
 const SUBJECT_FIELDS: usize = 17;
@@ -36,14 +36,9 @@ pub struct ProofJson {
     pi_c: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct GetWalletRes {
-    pub address: String
-}
-
 #[derive(Deserialize)]
 struct TxHash {
-    tx_hash: String
+    tx_hash: String,
 }
 
 impl ProofJson {
@@ -183,34 +178,18 @@ pub(crate) async fn handle_email<P: EmailsPool>(
             return Ok(());
         }
         let subject = parsed_email.get_subject_all().unwrap();
-        let sender_account_key_hex = match db.get_account_key(&from_address).await.unwrap() {
-            Some(key) => key,
-            None => {
-                tx_sender
-                    .clone()
-                    .send(EmailMessage {
-                        to: from_address.clone(),
-                        email_args: EmailArgs::Error {
-                            user_email_addr: from_address,
-                            original_subject: Some(subject),
-                            error_msg: "You do not have a wallet".to_string(),
-                        },
-                        account_key: None,
-                        wallet_addr: None,
-                        tx_hash: None,
-                    })
-                    .unwrap();
-                return Ok(());
-            }
-        };
 
         // get recipient address
         let client = reqwest::Client::new();
-        let re_mail_addr = subject[subject.find("to").unwrap() + 2..].trim_start().to_string();
-        let r_addr = if re_mail_addr.starts_with("nibi") {re_mail_addr.clone()} else {
-            let r_account_key_hex = match db.get_account_key(&re_mail_addr).await.unwrap() {
-                Some(key) => key,
-                None => {
+        let re_mail_addr = subject[subject.find("to").unwrap() + 2..]
+            .trim_start()
+            .to_string();
+        let r_addr = if re_mail_addr.starts_with("nibi") {
+            re_mail_addr.clone()
+        } else {
+            let r_account_key = match get_account_key_from_mail(&re_mail_addr, &db).await {
+                Ok(key) => key,
+                Err(_) => {
                     tx_sender
                         .clone()
                         .send(EmailMessage {
@@ -228,45 +207,56 @@ pub(crate) async fn handle_email<P: EmailsPool>(
                     return Ok(());
                 }
             };
-            let r_account_key = AccountKey(hex2field(&r_account_key_hex).unwrap());
-            let r_salt = r_account_key.to_wallet_salt().unwrap();
-            let res = client
-                .post(format!("{}/get-wallet-address", NIBIRU_SDK_PROXY_ADDR))
-                .json(&json!({
-                    "wallet_salt": fr_to_bytes32(&r_salt.0).unwrap()
-                }))
-                .send()
-                .await
-                .unwrap()
-                .error_for_status()
-                .unwrap();
-            res.json::<GetWalletRes>().await.unwrap().address
+            let WalletInfo { salt, address } =
+                get_wallet_from_account_key(&r_account_key).await.unwrap();
+            address
         };
+
         let new_subject = subject.replace(&re_mail_addr, r_addr.as_str());
-        let s_salt = AccountKey(hex2field(sender_account_key_hex.as_str()).unwrap()).to_wallet_salt().unwrap().0;
-        let s_salt = fr_to_bytes32(&s_salt).unwrap();
+
+        let sender_account_key = match get_account_key_from_mail(&from_address, &db).await {
+            Ok(key) => key,
+            Err(_) => {
+                tx_sender
+                    .clone()
+                    .send(EmailMessage {
+                        to: from_address.clone(),
+                        email_args: EmailArgs::Error {
+                            user_email_addr: from_address,
+                            original_subject: Some(subject),
+                            error_msg: "You do not have a wallet".to_string(),
+                        },
+                        account_key: None,
+                        wallet_addr: None,
+                        tx_hash: None,
+                    })
+                    .unwrap();
+                return Ok(());
+            },
+        };
+        let WalletInfo {
+            salt: sender_salt,
+            address: sender_nibiru_addr,
+        } = get_wallet_from_account_key(&sender_account_key)
+            .await
+            .unwrap();
+        let sender_salt = fr_to_bytes32(&sender_salt.0).unwrap();
         let tx_hash = client
             .post(format!("{}/params", NIBIRU_SDK_PROXY_ADDR))
             .json(&json!({
-                "wallet_salt": s_salt,
+                "wallet_salt": sender_salt,
                 "data": new_subject
             }))
             .send()
             .await
             .unwrap()
             .error_for_status()
-            .unwrap().json::<TxHash>().await.unwrap().tx_hash;
+            .unwrap()
+            .json::<TxHash>()
+            .await
+            .unwrap()
+            .tx_hash;
 
-        let s_nibiru_addr = client
-        .post(format!("{}/get-wallet-address", NIBIRU_SDK_PROXY_ADDR))
-        .json(&json!({
-            "wallet_salt": s_salt
-        }))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap().json::<GetWalletRes>().await.unwrap().address;
         (*tx_sender)
             .clone()
             .send(EmailMessage {
@@ -276,12 +266,12 @@ pub(crate) async fn handle_email<P: EmailsPool>(
                     original_subject: subject,
                     reply_to: from_address,
                 },
-                account_key: Some(sender_account_key_hex),
-                wallet_addr: Some(s_nibiru_addr),
+                account_key: Some(field2hex(&sender_account_key.0)),
+                wallet_addr: Some(sender_nibiru_addr),
                 tx_hash: Some(tx_hash),
             })
             .unwrap();
-        return Ok(())
+        return Ok(());
         // trace!(LOG, "email_op sent to tx_sender"; "func" => function_name!());
     }
     Ok(())

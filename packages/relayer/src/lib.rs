@@ -21,6 +21,7 @@ pub(crate) mod subgraph;
 pub(crate) mod subject_templates;
 pub(crate) mod voider;
 pub(crate) mod web_server;
+pub mod utils;
 
 pub(crate) use crate::core::*;
 use ::function_name::named;
